@@ -1,0 +1,37 @@
+name: Gemini Crypto Trading Cycle
+
+on:
+  schedule:
+    - cron: '0 */2 * * *'  # Läuft alle 2 Stunden (00:00, 02:00, 04:00, ..., 22:00 UTC)
+  workflow_dispatch:       # Erlaubt weiterhin manuelles Ausführen im Browser
+
+permissions:
+  contents: write
+
+jobs:
+  run-trader:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install Dependencies
+        run: pip install -r requirements.txt
+
+      - name: Execute Trading Cycle
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+        run: python bot.py
+
+      - name: Commit and Push Results
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          git add portfolio_state.json portfolio_history.csv trades_log.csv
+          git diff --quiet && git diff --staged --quiet || (git commit -m "chore: record trading cycle snapshot [skip ci]" && git push)
