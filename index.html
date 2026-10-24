@@ -3,46 +3,284 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Hannes Crypto-Portfolio Bot</title>
-  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <title>Hannes automatisiertes Crypto Portfolio Tracker</title>
+  
+  <!-- Roboto Serif Font -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Roboto+Serif:ital,opsz,wght@0,8..144,300..700;1,8..144,300..700&display=swap" rel="stylesheet">
+  
+  <!-- Bibliotheken -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
+
   <style>
     :root {
-      --bg: #0f172a;
-      --card: #1e293b;
-      --border: #334155;
-      --text: #f8fafc;
-      --subtext: #94a3b8;
-      --accent: #38bdf8;
-      --green: #22c55e;
-      --red: #ef4444;
+      /* Helles, beiges Farbschema */
+      --bg: #f7f4ed;
+      --card-bg: #ffffff;
+      --border: #e6dfd3;
+      --border-subtle: #efeae1;
+      
+      --text: #2f2a24;
+      --text-muted: #726b60;
+      --text-light: #9c9488;
+
+      /* Warme, harmonische Akzente */
+      --accent-primary: #0f766e;   /* Tiefes Salbeigrün / Petrol */
+      --accent-crypto: #c2611a;    /* Warmes Terrakotta / Kupfer */
+      --accent-cash: #64748b;      /* Ruhiges Schiefergrau */
+      
+      /* Statusfarben */
+      --badge-buy-bg: #eaf5ee;
+      --badge-buy-text: #1b6a38;
+      --badge-sell-bg: #fcedeb;
+      --badge-sell-text: #aa281e;
+      --badge-hold-bg: #f2eee8;
+      --badge-hold-text: #6b6357;
     }
-    * { box-sizing: border-box; margin: 0; padding: 0; }
-    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: var(--bg); color: var(--text); padding: 24px; line-height: 1.5; }
-    .container { max-width: 1200px; margin: 0 auto; display: flex; flex-direction: column; gap: 24px; }
-    header h1 { font-size: 1.5rem; font-weight: 700; color: var(--text); }
-    header p { color: var(--subtext); font-size: 0.875rem; }
-    .grid-kpi { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 16px; }
-    .card { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 20px; }
-    .card-title { font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--subtext); margin-bottom: 8px; }
-    .card-value { font-size: 1.75rem; font-weight: 700; }
-    .chart-container { position: relative; height: 350px; width: 100%; }
-    table { width: 100%; border-collapse: collapse; font-size: 0.875rem; text-align: left; }
-    th, td { padding: 12px; border-bottom: 1px solid var(--border); }
-    th { color: var(--subtext); font-weight: 600; }
-    .badge { display: inline-block; padding: 2px 8px; border-radius: 6px; font-weight: 700; font-size: 0.75rem; }
-    .badge-BUY { background: rgba(34, 197, 94, 0.2); color: var(--green); }
-    .badge-SELL { background: rgba(239, 68, 68, 0.2); color: var(--red); }
-    .badge-HOLD { background: rgba(148, 163, 184, 0.2); color: var(--subtext); }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      font-family: 'Roboto Serif', Georgia, serif;
+      background-color: var(--bg);
+      color: var(--text);
+      padding: 32px 20px;
+      line-height: 1.6;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    .container {
+      max-width: 1140px;
+      margin: 0 auto;
+      display: flex;
+      flex-direction: column;
+      gap: 24px;
+    }
+
+    header {
+      border-bottom: 1px solid var(--border);
+      padding-bottom: 20px;
+    }
+
+    header h1 {
+      font-size: 1.85rem;
+      font-weight: 600;
+      color: var(--text);
+      letter-spacing: -0.01em;
+    }
+
+    header p {
+      color: var(--text-muted);
+      font-size: 0.95rem;
+      margin-top: 4px;
+    }
+
+    /* KPI-Kacheln */
+    .grid-kpi {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
+      gap: 16px;
+    }
+
+    .card {
+      background: var(--card-bg);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 20px 22px;
+      box-shadow: 0 2px 6px rgba(47, 42, 36, 0.03);
+    }
+
+    .card-title {
+      font-size: 0.75rem;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: var(--text-muted);
+      margin-bottom: 8px;
+      font-weight: 600;
+    }
+
+    .card-value {
+      font-size: 1.85rem;
+      font-weight: 600;
+      color: var(--text);
+      font-variant-numeric: tabular-nums;
+    }
+
+    /* Kachel für aktive Bestände (untereinander) */
+    .holdings-list {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      margin-top: 4px;
+    }
+
+    .holding-item {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 4px 0;
+      border-bottom: 1px dashed var(--border-subtle);
+      font-size: 0.95rem;
+    }
+
+    .holding-item:last-child {
+      border-bottom: none;
+    }
+
+    .holding-symbol {
+      font-weight: 600;
+      color: var(--accent-crypto);
+    }
+
+    .holding-units {
+      font-variant-numeric: tabular-nums;
+      color: var(--text);
+      font-weight: 500;
+    }
+
+    /* Einklappbare Details-Bereiche */
+    details {
+      background: var(--card-bg);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      overflow: hidden;
+      box-shadow: 0 2px 6px rgba(47, 42, 36, 0.03);
+      transition: all 0.2s ease;
+    }
+
+    details summary {
+      padding: 16px 20px;
+      cursor: pointer;
+      font-weight: 600;
+      font-size: 0.95rem;
+      color: var(--text);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      user-select: none;
+      background: #faf8f3;
+      list-style: none;
+    }
+
+    details summary::-webkit-details-marker {
+      display: none;
+    }
+
+    details summary::after {
+      content: '+';
+      font-size: 1.3rem;
+      font-weight: 400;
+      color: var(--text-muted);
+      transition: transform 0.2s ease;
+    }
+
+    details[open] summary::after {
+      content: '–';
+    }
+
+    details summary:hover {
+      background: #f4eee3;
+    }
+
+    .details-content {
+      padding: 22px;
+      border-top: 1px solid var(--border);
+      font-size: 0.92rem;
+      color: var(--text-muted);
+    }
+
+    .details-content p {
+      margin-bottom: 12px;
+    }
+
+    .details-content p:last-child {
+      margin-bottom: 0;
+    }
+
+    .details-content strong {
+      color: var(--text);
+    }
+
+    /* Diagramm */
+    .chart-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 14px;
+    }
+
+    .chart-container {
+      position: relative;
+      height: 380px;
+      width: 100%;
+    }
+
+    /* Tabelle */
+    .table-wrapper {
+      overflow-x: auto;
+      margin-top: 8px;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.88rem;
+      text-align: left;
+    }
+
+    th, td {
+      padding: 12px 14px;
+      border-bottom: 1px solid var(--border-subtle);
+    }
+
+    th {
+      color: var(--text-muted);
+      font-weight: 600;
+      font-size: 0.8rem;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      background: #faf8f3;
+    }
+
+    tr:hover td {
+      background-color: #faf8f5;
+    }
+
+    .badge {
+      display: inline-block;
+      padding: 2px 10px;
+      border-radius: 4px;
+      font-weight: 600;
+      font-size: 0.75rem;
+      letter-spacing: 0.03em;
+    }
+
+    .badge-BUY { background: var(--badge-buy-bg); color: var(--badge-buy-text); }
+    .badge-SELL { background: var(--badge-sell-bg); color: var(--badge-sell-text); }
+    .badge-HOLD { background: var(--badge-hold-bg); color: var(--badge-hold-text); }
+
+    .reasoning-cell {
+      max-width: 420px;
+      line-height: 1.45;
+      color: var(--text);
+      font-size: 0.85rem;
+    }
   </style>
 </head>
 <body>
   <div class="container">
     <header>
-      <h1>Hannes Crypto-Portfolio Bot 🤑</h1>
-      <p>Autonomer Research- &amp; Trading-Agent via Gemini 2.5 Flash &amp; Google Search Grounding</p>
+      <h1>Hannes automatisiertes Crypto Portfolio</h1>
+      <p>Autonomes Forschungs- und Paper-Trading-Experiment mit Gemini 2.5 Flash &amp; Google Search Grounding</p>
     </header>
 
+    <!-- 1. KPI Kacheln -->
     <div class="grid-kpi">
       <div class="card">
         <div class="card-title">Gesamtwert</div>
@@ -58,56 +296,100 @@
       </div>
       <div class="card">
         <div class="card-title">Aktive Bestände</div>
-        <div class="card-value" id="kpi-holdings" style="font-size: 1rem; font-weight: normal; margin-top: 6px;">--</div>
+        <div class="holdings-list" id="kpi-holdings">
+          <div style="color: var(--text-muted); font-size: 0.9rem;">Lade Bestände...</div>
+        </div>
       </div>
     </div>
 
+    <!-- 2. Eingeklappter Infobereich über das Projekt & Funktionsweise -->
+    <details>
+      <summary>
+        <span>📖 Über dieses Experiment &amp; Funktionsweise</span>
+      </summary>
+      <div class="details-content">
+        <p>
+          <strong>Ziel des Projekts:</strong> Dieses Dashboard dokumentiert ein wissenschaftlich-experimentelles Paper-Trading-Projekt. Es untersucht, wie fundiert und diszipliniert ein modernes Large Language Model (Gemini 2.5 Flash) Kauf- und Verkaufsentscheidungen am volatilen Krypto-Markt treffen kann, wenn es ausschließlich fiktives Startkapital verwaltet.
+        </p>
+        <p>
+          <strong>Autonome Marktrecherche:</strong> Der Bot greift vor jeder Entscheidung nicht nur auf Live-Preise (via CoinGecko), sondern über <em>Google Search Grounding</em> selbstständig auf die weltweite Nachrichtenlage, Marktberichte und makroökonomische Trends der letzten 24 Stunden zu.
+        </p>
+        <p>
+          <strong>Risikomanagement &amp; Taktung:</strong> Alle 2 Stunden wird ein Zyklus angestoßen. Um das Risiko zu steuern, darf das Modell pro Kaufentscheidung maximal 25 % des verfügbaren Cashs einsetzen. Bei unklarer Lage oder hoher Unsicherheit entscheidet es diszipliniert auf <em>HOLD</em>.
+        </p>
+        <p>
+          <strong>Serverlose Architektur:</strong> Das System läuft vollständig automatisiert über Webhook-Trigger, GitHub Actions und Python. Alle Zustände und Historien werden transparent in leichtgewichtigen CSV- und JSON-Dateien direkt im GitHub-Repository erfasst.
+        </p>
+      </div>
+    </details>
+
+    <!-- 3. Portfoliowert-Diagramm -->
     <div class="card">
-      <div class="card-title">Portfoliowert über Zeit (USD)</div>
+      <div class="chart-header">
+        <div class="card-title" style="margin-bottom:0;">Wertentwicklung über Zeit (USD)</div>
+      </div>
       <div class="chart-container">
         <canvas id="historyChart"></canvas>
       </div>
     </div>
 
-    <div class="card">
-      <div class="card-title">Transaktions-Protokoll &amp; Entscheidungsbegründungen</div>
-      <div style="overflow-x: auto;">
-        <table>
-          <thead>
-            <tr>
-              <th>Zeitpunkt (UTC)</th>
-              <th>Aktion</th>
-              <th>Asset</th>
-              <th>Volumen</th>
-              <th>Ausführungskurs</th>
-              <th>Gemini Research Begründung</th>
-            </tr>
-          </thead>
-          <tbody id="trades-body">
-            <tr><td colspan="6" style="text-align:center; color: var(--subtext);">Lade Daten...</td></tr>
-          </tbody>
-        </table>
+    <!-- 4. Transaktions-Protokoll (Im Standard eingeklappt) -->
+    <details>
+      <summary>
+        <span>📋 Transaktions-Protokoll &amp; Gemini Entscheidungsbegründungen</span>
+        <span id="trades-count" style="font-size:0.8rem; font-weight:normal; color:var(--text-muted); margin-left:8px;"></span>
+      </summary>
+      <div class="details-content" style="padding: 12px;">
+        <div class="table-wrapper">
+          <table>
+            <thead>
+              <tr>
+                <th>Zeitpunkt (UTC)</th>
+                <th>Aktion</th>
+                <th>Asset</th>
+                <th>Volumen</th>
+                <th>Kurs</th>
+                <th>Entscheidungsbegründung (Gemini Research)</th>
+              </tr>
+            </thead>
+            <tbody id="trades-body">
+              <tr><td colspan="6" style="text-align:center; color: var(--text-muted); padding: 24px;">Lade Transaktionsprotokoll...</td></tr>
+            </tbody>
+          </table>
+        </div>
       </div>
-    </div>
+    </details>
   </div>
 
   <script>
     async function initDashboard() {
-      // 1. State laden
+      // 1. Portfolio-Status laden & Bestände untereinander anzeigen
       try {
         const stateRes = await fetch('portfolio_state.json?t=' + Date.now());
         const state = await stateRes.json();
-        document.getElementById('kpi-cash').innerText = '$' + state.cash.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2});
         
-        let holdingsStr = Object.entries(state.holdings)
-          .map(([sym, val]) => `${sym}: ${val.toFixed(4)}`)
-          .join(' | ');
-        document.getElementById('kpi-holdings').innerText = holdingsStr || 'Keine';
+        document.getElementById('kpi-cash').innerText = '$' + state.cash.toLocaleString('en-US', {
+          minimumFractionDigits: 2,
+          maximumFractionDigits: 2
+        });
+
+        const holdingsContainer = document.getElementById('kpi-holdings');
+        holdingsContainer.innerHTML = '';
+        
+        for (const [symbol, amount] of Object.entries(state.holdings)) {
+          const item = document.createElement('div');
+          item.className = 'holding-item';
+          item.innerHTML = `
+            <span class="holding-symbol">${symbol}</span>
+            <span class="holding-units">${amount.toLocaleString('en-US', { minimumFractionDigits: 4, maximumFractionDigits: 4 })}</span>
+          `;
+          holdingsContainer.appendChild(item);
+        }
       } catch (e) {
-        console.warn('State noch nicht verfügbar');
+        console.warn('portfolio_state.json noch nicht erreichbar');
       }
 
-      // 2. Historie laden & Chart rendern
+      // 2. Historie laden & Chart.js rendern (Linien-Legende)
       try {
         const histRes = await fetch('portfolio_history.csv?t=' + Date.now());
         const histCsv = await histRes.text();
@@ -119,8 +401,8 @@
             if (!data.length) return;
 
             const last = data[data.length - 1];
-            document.getElementById('kpi-total').innerText = '$' + parseFloat(last.total_usd).toLocaleString('en-US', {minimumFractionDigits: 2});
-            document.getElementById('kpi-crypto').innerText = '$' + parseFloat(last.crypto_usd).toLocaleString('en-US', {minimumFractionDigits: 2});
+            document.getElementById('kpi-total').innerText = '$' + parseFloat(last.total_usd).toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2});
+            document.getElementById('kpi-crypto').innerText = '$' + parseFloat(last.crypto_usd).toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2});
 
             const labels = data.map(r => r.timestamp.replace(' UTC', ''));
             const total = data.map(r => parseFloat(r.total_usd));
@@ -133,28 +415,93 @@
               data: {
                 labels: labels,
                 datasets: [
-                  { label: 'Gesamtwert', data: total, borderColor: '#38bdf8', backgroundColor: 'rgba(56, 189, 248, 0.1)', fill: true, tension: 0.2 },
-                  { label: 'Freies Cash', data: cash, borderColor: '#94a3b8', borderDash: [4, 4], tension: 0.2 },
-                  { label: 'Krypto-Bestand', data: crypto, borderColor: '#a855f7', tension: 0.2 }
+                  { 
+                    label: 'Gesamtwert', 
+                    data: total, 
+                    borderColor: '#0f766e', 
+                    backgroundColor: 'rgba(15, 118, 110, 0.06)', 
+                    fill: true, 
+                    tension: 0.25,
+                    borderWidth: 2.5,
+                    pointRadius: 3
+                  },
+                  { 
+                    label: 'Freies Cash', 
+                    data: cash, 
+                    borderColor: '#78716c', 
+                    borderDash: [5, 4], 
+                    fill: false,
+                    tension: 0.25,
+                    borderWidth: 1.8,
+                    pointRadius: 2
+                  },
+                  { 
+                    label: 'Krypto-Bestand', 
+                    data: crypto, 
+                    borderColor: '#c2611a', 
+                    fill: false,
+                    tension: 0.25,
+                    borderWidth: 2,
+                    pointRadius: 2
+                  }
                 ]
               },
               options: {
                 responsive: true,
                 maintainAspectRatio: false,
-                scales: {
-                  x: { ticks: { color: '#94a3b8' }, grid: { color: '#334155' } },
-                  y: { ticks: { color: '#94a3b8', callback: v => '$' + v }, grid: { color: '#334155' } }
+                interaction: {
+                  mode: 'index',
+                  intersect: false
                 },
-                plugins: { legend: { labels: { color: '#f8fafc' } } }
+                scales: {
+                  x: { 
+                    ticks: { 
+                      color: '#726b60', 
+                      font: { family: "'Roboto Serif', serif", size: 11 } 
+                    }, 
+                    grid: { color: '#efeae1' } 
+                  },
+                  y: { 
+                    ticks: { 
+                      color: '#726b60', 
+                      font: { family: "'Roboto Serif', serif", size: 11 },
+                      callback: v => '$' + v.toLocaleString('en-US') 
+                    }, 
+                    grid: { color: '#efeae1' } 
+                  }
+                },
+                plugins: { 
+                  legend: { 
+                    display: true,
+                    labels: { 
+                      color: '#2f2a24',
+                      font: { family: "'Roboto Serif', serif", size: 12 },
+                      usePointStyle: true,
+                      pointStyle: 'line',  /* Stellt Linien statt Kästchen in der Legende dar */
+                      boxWidth: 32,
+                      padding: 18
+                    } 
+                  },
+                  tooltip: {
+                    backgroundColor: '#ffffff',
+                    titleColor: '#2f2a24',
+                    bodyColor: '#2f2a24',
+                    borderColor: '#e6dfd3',
+                    borderWidth: 1,
+                    padding: 10,
+                    titleFont: { family: "'Roboto Serif', serif" },
+                    bodyFont: { family: "'Roboto Serif', serif" }
+                  }
+                }
               }
             });
           }
         });
       } catch (e) {
-        console.warn('Historie noch leer');
+        console.warn('Historie noch nicht geladen');
       }
 
-      // 3. Trades Tabelle rendern
+      // 3. Transaktions-Log Tabelle laden
       try {
         const tradesRes = await fetch('trades_log.csv?t=' + Date.now());
         const tradesCsv = await tradesRes.text();
@@ -165,24 +512,33 @@
             const rows = results.data.reverse();
             const tbody = document.getElementById('trades-body');
             tbody.innerHTML = '';
+            
+            const countEl = document.getElementById('trades-count');
+            if (countEl) countEl.innerText = `(${rows.length} Einträge)`;
+
             rows.forEach(t => {
               const tr = document.createElement('tr');
-              const amountStr = t.amount_usd > 0 ? '$' + parseFloat(t.amount_usd).toLocaleString() : '--';
-              const priceStr = t.price > 0 ? '$' + parseFloat(t.price).toLocaleString() : '--';
+              const amountStr = parseFloat(t.amount_usd) > 0 
+                ? '$' + parseFloat(t.amount_usd).toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2}) 
+                : '–';
+              const priceStr = parseFloat(t.price) > 0 
+                ? '$' + parseFloat(t.price).toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2}) 
+                : '–';
+              
               tr.innerHTML = `
-                <td style="white-space: nowrap;">${t.timestamp}</td>
+                <td style="white-space: nowrap; color: var(--text-muted); font-size: 0.8rem;">${t.timestamp}</td>
                 <td><span class="badge badge-${t.action}">${t.action}</span></td>
-                <td><strong>${t.symbol}</strong></td>
-                <td>${amountStr}</td>
-                <td>${priceStr}</td>
-                <td style="color: #cbd5e1; font-size: 0.8rem;">${t.reasoning}</td>
+                <td><strong style="color: var(--accent-crypto);">${t.symbol}</strong></td>
+                <td style="font-variant-numeric: tabular-nums;">${amountStr}</td>
+                <td style="font-variant-numeric: tabular-nums;">${priceStr}</td>
+                <td class="reasoning-cell">${t.reasoning || ''}</td>
               `;
               tbody.appendChild(tr);
             });
           }
         });
       } catch (e) {
-        console.warn('Noch keine Trades');
+        console.warn('Noch keine Trades vorhanden');
       }
     }
 
