@@ -1,0 +1,192 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Gemini Crypto Portfolio Tracker</title>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
+  <style>
+    :root {
+      --bg: #0f172a;
+      --card: #1e293b;
+      --border: #334155;
+      --text: #f8fafc;
+      --subtext: #94a3b8;
+      --accent: #38bdf8;
+      --green: #22c55e;
+      --red: #ef4444;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: var(--bg); color: var(--text); padding: 24px; line-height: 1.5; }
+    .container { max-width: 1200px; margin: 0 auto; display: flex; flex-direction: column; gap: 24px; }
+    header h1 { font-size: 1.5rem; font-weight: 700; color: var(--text); }
+    header p { color: var(--subtext); font-size: 0.875rem; }
+    .grid-kpi { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 16px; }
+    .card { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 20px; }
+    .card-title { font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--subtext); margin-bottom: 8px; }
+    .card-value { font-size: 1.75rem; font-weight: 700; }
+    .chart-container { position: relative; height: 350px; width: 100%; }
+    table { width: 100%; border-collapse: collapse; font-size: 0.875rem; text-align: left; }
+    th, td { padding: 12px; border-bottom: 1px solid var(--border); }
+    th { color: var(--subtext); font-weight: 600; }
+    .badge { display: inline-block; padding: 2px 8px; border-radius: 6px; font-weight: 700; font-size: 0.75rem; }
+    .badge-BUY { background: rgba(34, 197, 94, 0.2); color: var(--green); }
+    .badge-SELL { background: rgba(239, 68, 68, 0.2); color: var(--red); }
+    .badge-HOLD { background: rgba(148, 163, 184, 0.2); color: var(--subtext); }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <header>
+      <h1>Gemini Autonomous Crypto Portfolio</h1>
+      <p>Autonomer Research- &amp; Trading-Agent via Gemini 2.5 Flash &amp; Google Search Grounding</p>
+    </header>
+
+    <div class="grid-kpi">
+      <div class="card">
+        <div class="card-title">Gesamtwert</div>
+        <div class="card-value" id="kpi-total">--</div>
+      </div>
+      <div class="card">
+        <div class="card-title">Freies Cash (Fiat)</div>
+        <div class="card-value" id="kpi-cash">--</div>
+      </div>
+      <div class="card">
+        <div class="card-title">Investiert in Krypto</div>
+        <div class="card-value" id="kpi-crypto">--</div>
+      </div>
+      <div class="card">
+        <div class="card-title">Aktive Bestände</div>
+        <div class="card-value" id="kpi-holdings" style="font-size: 1rem; font-weight: normal; margin-top: 6px;">--</div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">Portfoliowert über Zeit (USD)</div>
+      <div class="chart-container">
+        <canvas id="historyChart"></canvas>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">Transaktions-Protokoll &amp; Entscheidungsbegründungen</div>
+      <div style="overflow-x: auto;">
+        <table>
+          <thead>
+            <tr>
+              <th>Zeitpunkt (UTC)</th>
+              <th>Aktion</th>
+              <th>Asset</th>
+              <th>Volumen</th>
+              <th>Ausführungskurs</th>
+              <th>Gemini Research Begründung</th>
+            </tr>
+          </thead>
+          <tbody id="trades-body">
+            <tr><td colspan="6" style="text-align:center; color: var(--subtext);">Lade Daten...</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    async function initDashboard() {
+      // 1. State laden
+      try {
+        const stateRes = await fetch('portfolio_state.json?t=' + Date.now());
+        const state = await stateRes.json();
+        document.getElementById('kpi-cash').innerText = '$' + state.cash.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2});
+        
+        let holdingsStr = Object.entries(state.holdings)
+          .map(([sym, val]) => `${sym}: ${val.toFixed(4)}`)
+          .join(' | ');
+        document.getElementById('kpi-holdings').innerText = holdingsStr || 'Keine';
+      } catch (e) {
+        console.warn('State noch nicht verfügbar');
+      }
+
+      // 2. Historie laden & Chart rendern
+      try {
+        const histRes = await fetch('portfolio_history.csv?t=' + Date.now());
+        const histCsv = await histRes.text();
+        Papa.parse(histCsv, {
+          header: true,
+          skipEmptyLines: true,
+          complete: function(results) {
+            const data = results.data;
+            if (!data.length) return;
+
+            const last = data[data.length - 1];
+            document.getElementById('kpi-total').innerText = '$' + parseFloat(last.total_usd).toLocaleString('en-US', {minimumFractionDigits: 2});
+            document.getElementById('kpi-crypto').innerText = '$' + parseFloat(last.crypto_usd).toLocaleString('en-US', {minimumFractionDigits: 2});
+
+            const labels = data.map(r => r.timestamp.replace(' UTC', ''));
+            const total = data.map(r => parseFloat(r.total_usd));
+            const cash = data.map(r => parseFloat(r.cash_usd));
+            const crypto = data.map(r => parseFloat(r.crypto_usd));
+
+            const ctx = document.getElementById('historyChart').getContext('2d');
+            new Chart(ctx, {
+              type: 'line',
+              data: {
+                labels: labels,
+                datasets: [
+                  { label: 'Gesamtwert', data: total, borderColor: '#38bdf8', backgroundColor: 'rgba(56, 189, 248, 0.1)', fill: true, tension: 0.2 },
+                  { label: 'Freies Cash', data: cash, borderColor: '#94a3b8', borderDash: [4, 4], tension: 0.2 },
+                  { label: 'Krypto-Bestand', data: crypto, borderColor: '#a855f7', tension: 0.2 }
+                ]
+              },
+              options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                scales: {
+                  x: { ticks: { color: '#94a3b8' }, grid: { color: '#334155' } },
+                  y: { ticks: { color: '#94a3b8', callback: v => '$' + v }, grid: { color: '#334155' } }
+                },
+                plugins: { legend: { labels: { color: '#f8fafc' } } }
+              }
+            });
+          }
+        });
+      } catch (e) {
+        console.warn('Historie noch leer');
+      }
+
+      // 3. Trades Tabelle rendern
+      try {
+        const tradesRes = await fetch('trades_log.csv?t=' + Date.now());
+        const tradesCsv = await tradesRes.text();
+        Papa.parse(tradesCsv, {
+          header: true,
+          skipEmptyLines: true,
+          complete: function(results) {
+            const rows = results.data.reverse();
+            const tbody = document.getElementById('trades-body');
+            tbody.innerHTML = '';
+            rows.forEach(t => {
+              const tr = document.createElement('tr');
+              const amountStr = t.amount_usd > 0 ? '$' + parseFloat(t.amount_usd).toLocaleString() : '--';
+              const priceStr = t.price > 0 ? '$' + parseFloat(t.price).toLocaleString() : '--';
+              tr.innerHTML = `
+                <td style="white-space: nowrap;">${t.timestamp}</td>
+                <td><span class="badge badge-${t.action}">${t.action}</span></td>
+                <td><strong>${t.symbol}</strong></td>
+                <td>${amountStr}</td>
+                <td>${priceStr}</td>
+                <td style="color: #cbd5e1; font-size: 0.8rem;">${t.reasoning}</td>
+              `;
+              tbody.appendChild(tr);
+            });
+          }
+        });
+      } catch (e) {
+        console.warn('Noch keine Trades');
+      }
+    }
+
+    initDashboard();
+  </script>
+</body>
+</html>
