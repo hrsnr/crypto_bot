@@ -2,7 +2,7 @@ name: Gemini Crypto Trading Cycle
 
 on:
   schedule:
-    - cron: '*/5 * * * *'  #Startet alle 2 Stunden um Minute 17 (00:17, 02:17, 04:17 UTC usw.)
+    - cron: '17 */2 * * *'  #Startet alle 2 Stunden um Minute 17 (00:17, 02:17, 04:17 UTC usw.)
   workflow_dispatch:       # Erlaubt weiterhin manuelles Ausführen im Browser
 
 permissions:
