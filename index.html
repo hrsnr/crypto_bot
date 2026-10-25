@@ -112,6 +112,26 @@
       font-variant-numeric: tabular-nums;
     }
 
+    /* Differenzanzeige zum Startkapital */
+    .card-delta {
+      font-size: 0.88rem;
+      margin-top: 4px;
+      font-weight: 600;
+      font-variant-numeric: tabular-nums;
+    }
+
+    .delta-positive {
+      color: var(--badge-buy-text);
+    }
+
+    .delta-negative {
+      color: var(--badge-sell-text);
+    }
+
+    .delta-neutral {
+      color: var(--text-muted);
+    }
+
     /* Kachel für aktive Bestände (untereinander) */
     .holdings-list {
       display: flex;
@@ -285,6 +305,7 @@
       <div class="card">
         <div class="card-title">Gesamtwert</div>
         <div class="card-value" id="kpi-total">--</div>
+        <div class="card-delta" id="kpi-delta"></div>
       </div>
       <div class="card">
         <div class="card-title">Freies Cash (Fiat)</div>
@@ -401,8 +422,31 @@
             if (!data.length) return;
 
             const last = data[data.length - 1];
-            document.getElementById('kpi-total').innerText = '$' + parseFloat(last.total_usd).toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2});
+            const totalVal = parseFloat(last.total_usd);
+            
+            document.getElementById('kpi-total').innerText = '$' + totalVal.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2});
             document.getElementById('kpi-crypto').innerText = '$' + parseFloat(last.crypto_usd).toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2});
+
+            // Differenz zum Startkapital ($10.000) berechnen
+            const deltaEl = document.getElementById('kpi-delta');
+            if (deltaEl && !isNaN(totalVal)) {
+              const startCapital = 10000.0;
+              const diffVal = totalVal - startCapital;
+              const diffPct = (diffVal / startCapital) * 100;
+              const absValStr = Math.abs(diffVal).toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2});
+              const absPctStr = Math.abs(diffPct).toFixed(2);
+
+              if (diffVal > 0.001) {
+                deltaEl.className = 'card-delta delta-positive';
+                deltaEl.innerText = `▲ +$${absValStr} (+${absPctStr}%)`;
+              } else if (diffVal < -0.001) {
+                deltaEl.className = 'card-delta delta-negative';
+                deltaEl.innerText = `▼ -$${absValStr} (-${absPctStr}%)`;
+              } else {
+                deltaEl.className = 'card-delta delta-neutral';
+                deltaEl.innerText = `$0.00 (0.00%)`;
+              }
+            }
 
             const labels = data.map(r => r.timestamp.replace(' UTC', ''));
             const total = data.map(r => parseFloat(r.total_usd));
@@ -477,7 +521,7 @@
                       color: '#2f2a24',
                       font: { family: "'Roboto Serif', serif", size: 12 },
                       usePointStyle: true,
-                      pointStyle: 'line',  /* Stellt Linien statt Kästchen in der Legende dar */
+                      pointStyle: 'line',
                       boxWidth: 32,
                       padding: 18
                     } 
