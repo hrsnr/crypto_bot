@@ -244,17 +244,17 @@ def run_cycle():
     # 3. State speichern
     save_portfolio_state(state)
 
-    # 4. Historie erfassen (portfolio_history.csv)
+# 4. Historie erfassen (portfolio_history.csv)
     history_exists = os.path.exists(HISTORY_FILE)
     with open(HISTORY_FILE, "a", newline="", encoding="utf-8") as f:
         writer = csv.writer(f)
         if not history_exists:
-            writer.writerow(["timestamp", "total_usd", "cash_usd", "crypto_usd"])
+            writer.writerow(["timestamp", "cash_usd", "crypto_usd", "total_usd"])
         writer.writerow([
             now_utc,
-            f"{total_val:.2f}",
             f"{state['cash']:.2f}",
             f"{crypto_val:.2f}",
+            f"{total_val:.2f}",
         ])
 
     # 5. Transaktions-Log schreiben (trades_log.csv)
