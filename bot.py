@@ -28,7 +28,7 @@ class TradingDecision(BaseModel):
     action: Literal["BUY", "SELL", "HOLD"]
     symbol: Optional[Literal["BTC", "ETH", "SOL"]] = None
     amount_usd: float = 0.0
-    reasoning: str = ""
+    reasoning: str
 
     @field_validator("symbol", mode="before")
     @classmethod
@@ -54,6 +54,13 @@ class TradingDecision(BaseModel):
         except (ValueError, TypeError):
             return 0.0
 
+    @field_validator("reasoning", mode="before")
+    @classmethod
+    def sanitize_reasoning(cls, v):
+        if not v or not str(v).strip():
+            return "Marktlage neutral/abwartend bewertet – keine Trendimpulse identifiziert."
+        return str(v).strip()
+
 
 # --- HELPER-FUNKTIONEN ---
 def get_current_prices() -> dict[str, float]:
@@ -77,18 +84,32 @@ def get_current_prices() -> dict[str, float]:
 
 
 def load_portfolio_state() -> dict:
-    """Lädt den Portfoliostatus oder initialisiert ihn mit 10.000$ Startkapital."""
+    """Lädt den Portfoliostatus oder initialisiert ihn; migriert entry_prices bei Bedarf."""
+    state = {
+        "cash": INITIAL_CASH,
+        "holdings": {symbol: 0.0 for symbol in SUPPORTED_COINS.values()},
+        "entry_prices": {symbol: 0.0 for symbol in SUPPORTED_COINS.values()},
+    }
+
     if os.path.exists(STATE_FILE):
         try:
             with open(STATE_FILE, "r", encoding="utf-8") as f:
-                return json.load(f)
+                loaded = json.load(f)
+                state["cash"] = float(loaded.get("cash", INITIAL_CASH))
+                state["holdings"] = {
+                    sym: float(loaded.get("holdings", {}).get(sym, 0.0))
+                    for sym in SUPPORTED_COINS.values()
+                }
+                # Migration: Falls entry_prices bisher nicht existierte
+                loaded_entry = loaded.get("entry_prices", {})
+                state["entry_prices"] = {
+                    sym: float(loaded_entry.get(sym, 0.0))
+                    for sym in SUPPORTED_COINS.values()
+                }
         except Exception as e:
             print(f"[WARNUNG] Konnte {STATE_FILE} nicht lesen: {e}")
 
-    return {
-        "cash": INITIAL_CASH,
-        "holdings": {symbol: 0.0 for symbol in SUPPORTED_COINS.values()},
-    }
+    return state
 
 
 def save_portfolio_state(state: dict):
@@ -125,39 +146,70 @@ def ask_gemini(prices: dict, state: dict) -> TradingDecision:
 
     client = genai.Client(api_key=api_key)
 
-    holdings_str = ", ".join(
-        f"{sym}: {qty:.4f}" for sym, qty in state["holdings"].items()
-    )
-    prices_str = ", ".join(
-        f"{sym}: ${val:,.2f}" for sym, val in prices.items()
-    )
+    # Detaillierte Positions-Übersicht inklusive P&L zusammenbauen
+    positions_summary = []
+    total_crypto_val = 0.0
+    for sym in SUPPORTED_COINS.values():
+        units = state["holdings"].get(sym, 0.0)
+        curr_price = prices.get(sym, 0.0)
+        entry_price = state["entry_prices"].get(sym, 0.0)
+        curr_val = units * curr_price
+        total_crypto_val += curr_val
+
+        if units > 0.00001:
+            if entry_price > 0:
+                pnl_pct = ((curr_price - entry_price) / entry_price) * 100
+                pnl_usd = (curr_price - entry_price) * units
+                pnl_str = f"P&L: {pnl_pct:+.2f}% ({pnl_usd:+.2f} USD)"
+            else:
+                pnl_str = "Einstiegskurs: unbekannt"
+            positions_summary.append(
+                f"- {sym}: {units:.4f} Stk (Wert: ${curr_val:,.2f} | Einstieg: ${entry_price:,.2f} | Kurs: ${curr_price:,.2f} | {pnl_str})"
+            )
+        else:
+            positions_summary.append(
+                f"- {sym}: Kein Bestand (Aktueller Kurs: ${curr_price:,.2f})"
+            )
+
+    total_portfolio = state["cash"] + total_crypto_val
+    cash_ratio = (state["cash"] / total_portfolio) * 100 if total_portfolio > 0 else 100.0
 
     prompt = f"""
-Du bist ein professioneller, risikobewusster Krypto-Trading-Bot für ein Paper-Trading-Portfolio.
+Du bist ein professioneller, taktisch agierender Krypto-Trading-Bot für ein Paper-Trading-Portfolio.
 Aktuelle UTC-Zeit: {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')}
 
-PORTFOLIO-STATUS:
-- Freies Cash: ${state['cash']:,.2f} USD
-- Aktive Bestände: {holdings_str}
-- Aktuelle Marktpreise (USD): {prices_str}
+PORTFOLIO-ÜBERSICHT:
+- Gesamtwert: ${total_portfolio:,.2f} USD
+- Freies Cash: ${state['cash']:,.2f} USD ({cash_ratio:.1f}% Cash-Quote)
+- Krypto-Bestandswert: ${total_crypto_val:,.2f} USD
+
+BESTÄNDE & POSITIONEN (inkl. P&L):
+{chr(10).join(positions_summary)}
+
+STRATEGIE & HANDELSRICHTLINIEN:
+1. AKTIVE CHANCENNUTZUNG (DIP-BUYING):
+   - Wenn deine Cash-Quote hoch ist (> 50 %), lasse das Geld nicht untätig liegen. Nutze kurzfristige Dips, Bodenbildungen oder positive Momentum-News bei BTC, ETH oder SOL für einen Einstieg.
+   - Maximal 25% des freien Cashs (${state['cash'] * 0.25:,.2f} USD) pro Kauforder einsetzen.
+
+2. GEWINNMITNAHME (TAKE-PROFIT):
+   - Steht eine gehaltene Position deutlich im Plus (z. B. > +3% bis +8%) oder zeigt der Markt Ermüdungserscheinungen an Widerständen, realisiere Teilgewinne (SELL von z. B. 30% bis 70% des Bestands).
+
+3. RISIKOMANAGEMENT (STOP-LOSS):
+   - Wenn eine Position stark ins Minus rutscht (z. B. > -5%) und die Nachrichtenlage weiteren Verkaufsdruck signalisiert, reduziere oder schließe die Position konsequent.
+
+4. DISZIPLINIERTES HOLD:
+   - Wähle "HOLD" nur, wenn der Markt exakt konsolidiert oder kein klares Setup vorliegt.
+   - PFLICHT: Auch bei "HOLD" musst du in 1-3 Sätzen konkret begründen, warum du abwartest (unter Nennung von Kursniveaus, News-Recherche oder deiner P&L).
 
 AUFGABE:
-1. Nutze Google Search, um aktuelle Trends, Marktsentiment und Nachrichten der letzten 24 Stunden zu BTC, ETH und SOL zu prüfen.
-2. Entscheide, ob ein BUY, SELL oder HOLD sinnvoll ist.
+Nutze Google Search für BTC, ETH und SOL der letzten 24 Stunden (Makro-News, ETF-Zuflüsse, Liquidationsdaten, Sentiments). Triff dann genau EINE Entscheidung (BUY, SELL oder HOLD).
+Antworte AUSSCHLIESSLICH im folgenden JSON-Format:
 
-REGELN:
-- HOLD: Wenn der Markt unklar, überhitzt oder volatil ist, wähle diszipliniert "HOLD". In diesem Fall MUSS "symbol": null und "amount_usd": 0.0 sein.
-  WICHTIG: Auch bei "HOLD" MUSST du im Feld "reasoning" zwingend in 1-3 Sätzen deine Markteinschätzung begründen (z. B. Chartbild, Marktlage, Makro-News oder fehlende Kauf-/Verkaufsimpulse)!
-- BUY: Maximal 25% des verfügbaren Cashs (${state['cash'] * 0.25:,.2f} USD) investieren.
-- SELL: Nur Coins verkaufen, die sich bereits im Bestand befinden. Maximaler Gegenwert entspricht dem aktuellen Bestandswert.
-- Gib AUSSCHLIESSLICH ein gültiges JSON-Objekt ohne zusätzliche Erklärungen zurück!
-
-JSON-FORMAT:
 {{
   "action": "BUY" | "SELL" | "HOLD",
   "symbol": "BTC" | "ETH" | "SOL" | null,
-  "amount_usd": <Zahl in USD, bei HOLD immer 0.0>,
-  "reasoning": "<Zwingend 1-3 Sätze Analyse zur Marktlage, auch bei HOLD>"
+  "amount_usd": <Betrag in USD als Zahl; bei HOLD 0.0>,
+  "reasoning": "<1-3 Sätze konkrete Analyse mit Bezug auf Recherche/P&L, zwingend erforderlich>"
 }}
 """
 
@@ -167,7 +219,7 @@ JSON-FORMAT:
             contents=prompt,
             config=types.GenerateContentConfig(
                 tools=[types.Tool(google_search=types.GoogleSearch())],
-                temperature=0.2,
+                temperature=0.35,  # Etwas dynamischer für aktive Marktbeurteilung
             ),
         )
 
@@ -196,6 +248,12 @@ def run_cycle():
         return
 
     state = load_portfolio_state()
+
+    # Initialer Fix für Altdaten: Falls Bestände vorhanden sind, aber kein Einstiegskurs bekannt ist
+    for sym, units in state["holdings"].items():
+        if units > 0.00001 and state["entry_prices"].get(sym, 0.0) <= 0.0:
+            state["entry_prices"][sym] = prices.get(sym, 0.0)
+
     decision = ask_gemini(prices, state)
     print(f"Entscheidung: {decision.action} | Symbol: {decision.symbol} | Betrag: ${decision.amount_usd:,.2f}")
     print(f"Begründung: {decision.reasoning}")
@@ -206,14 +264,26 @@ def run_cycle():
     executed_amount = 0.0
     trade_price = prices.get(symbol, 0.0) if symbol else 0.0
 
-    # 1. Trade-Logik anwenden
+    # 1. Trade-Logik anwenden & Einstiegskurse nachführen
     if action == "BUY" and symbol in prices and prices[symbol] > 0:
         max_allowed_cash = state["cash"] * 0.25
         trade_usd = min(requested_amount, max_allowed_cash, state["cash"])
         if trade_usd >= 10.0:
-            units = trade_usd / prices[symbol]
+            units_bought = trade_usd / prices[symbol]
+            old_units = state["holdings"].get(symbol, 0.0)
+            old_entry = state["entry_prices"].get(symbol, 0.0)
+
+            # Neuer gewichteter Durchschnitts-Einstiegspreis
+            new_total_units = old_units + units_bought
+            new_avg_entry = (
+                ((old_units * old_entry) + trade_usd) / new_total_units
+                if new_total_units > 0
+                else prices[symbol]
+            )
+
             state["cash"] -= trade_usd
-            state["holdings"][symbol] = state["holdings"].get(symbol, 0.0) + units
+            state["holdings"][symbol] = new_total_units
+            state["entry_prices"][symbol] = new_avg_entry
             executed_amount = trade_usd
         else:
             action = "HOLD"
@@ -225,9 +295,15 @@ def run_cycle():
         trade_usd = min(requested_amount, max_sell_usd)
         if trade_usd >= 5.0 and current_units > 0:
             units_to_sell = trade_usd / prices[symbol]
-            state["holdings"][symbol] = max(0.0, current_units - units_to_sell)
+            remaining_units = max(0.0, current_units - units_to_sell)
+            state["holdings"][symbol] = remaining_units
             state["cash"] += trade_usd
             executed_amount = trade_usd
+
+            # Wenn Position komplett aufgelöst wurde, Einstiegspreis zurücksetzen
+            if remaining_units <= 0.00001:
+                state["holdings"][symbol] = 0.0
+                state["entry_prices"][symbol] = 0.0
         else:
             action = "HOLD"
             decision.reasoning += " (Kein ausreichender Bestand zum Verkauf vorhanden)"
