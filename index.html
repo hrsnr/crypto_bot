@@ -286,10 +286,10 @@
     .badge-HOLD { background: var(--badge-hold-bg); color: var(--badge-hold-text); }
 
     .reasoning-cell {
-      max-width: 420px;
-      line-height: 1.45;
+      min-width: 380px;
+      line-height: 1.5;
       color: var(--text);
-      font-size: 0.85rem;
+      font-size: 0.86rem;
     }
   </style>
 </head>
@@ -545,13 +545,17 @@
         console.warn('Historie noch nicht geladen');
       }
 
-      // 3. Transaktions-Log Tabelle laden
+      // 3. Transaktions-Log Tabelle laden mit robuster Spalten-Erkennung
       try {
         const tradesRes = await fetch('trades_log.csv?t=' + Date.now());
         const tradesCsv = await tradesRes.text();
         Papa.parse(tradesCsv, {
           header: true,
           skipEmptyLines: true,
+          transformHeader: function(h) {
+            // Bereinigt unsichtbare Steuerzeichen, Whitespaces und Casing
+            return h.trim().replace(/[\r\n]/g, '').toLowerCase();
+          },
           complete: function(results) {
             const rows = results.data.reverse();
             const tbody = document.getElementById('trades-body');
@@ -562,21 +566,44 @@
 
             rows.forEach(t => {
               const tr = document.createElement('tr');
-              const amountStr = parseFloat(t.amount_usd) > 0 
-                ? '$' + parseFloat(t.amount_usd).toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2}) 
+              
+              // Robuste Feldzuweisung (funktioniert mit allen Header-Variationen)
+              const timestamp = t.timestamp || Object.values(t)[0] || '–';
+              const action = (t.action || Object.values(t)[1] || 'HOLD').trim();
+              const symbol = (t.symbol || Object.values(t)[2] || '–').trim();
+              const rawAmount = t.amount_usd || t.amount || Object.values(t)[3];
+              const rawPrice = t.price || Object.values(t)[4];
+              
+              // Zieht die Begründung zuverlässig aus dem Feld oder Spalte 6
+              const reasoningText = 
+                t.reasoning || 
+                t.reason || 
+                t['entscheidungsbegründung'] || 
+                Object.entries(t).find(([k]) => k.includes('reason') || k.includes('begr'))?.[1] || 
+                Object.values(t)[5] || 
+                '–';
+
+              const amountStr = parseFloat(rawAmount) > 0 
+                ? '$' + parseFloat(rawAmount).toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2}) 
                 : '–';
-              const priceStr = parseFloat(t.price) > 0 
-                ? '$' + parseFloat(t.price).toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2}) 
+              const priceStr = parseFloat(rawPrice) > 0 
+                ? '$' + parseFloat(rawPrice).toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2}) 
                 : '–';
               
               tr.innerHTML = `
-                <td style="white-space: nowrap; color: var(--text-muted); font-size: 0.8rem;">${t.timestamp}</td>
-                <td><span class="badge badge-${t.action}">${t.action}</span></td>
-                <td><strong style="color: var(--accent-crypto);">${t.symbol}</strong></td>
+                <td style="white-space: nowrap; color: var(--text-muted); font-size: 0.8rem;">${timestamp}</td>
+                <td><span class="badge badge-${action}">${action}</span></td>
+                <td><strong style="color: var(--accent-crypto);">${symbol}</strong></td>
                 <td style="font-variant-numeric: tabular-nums;">${amountStr}</td>
                 <td style="font-variant-numeric: tabular-nums;">${priceStr}</td>
-                <td class="reasoning-cell">${t.reasoning || ''}</td>
               `;
+              
+              // Textinhalt sicher per textContent anfügen (verhindert HTML-Schluckfehler)
+              const tdReason = document.createElement('td');
+              tdReason.className = 'reasoning-cell';
+              tdReason.textContent = reasoningText;
+              tr.appendChild(tdReason);
+
               tbody.appendChild(tr);
             });
           }
