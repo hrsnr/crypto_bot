@@ -28,7 +28,7 @@ class TradingDecision(BaseModel):
     action: Literal["BUY", "SELL", "HOLD"]
     symbol: Optional[Literal["BTC", "ETH", "SOL"]] = None
     amount_usd: float = 0.0
-    reasoning: str
+    reasoning: str = ""
 
     @field_validator("symbol", mode="before")
     @classmethod
@@ -46,7 +46,7 @@ class TradingDecision(BaseModel):
     @field_validator("amount_usd", mode="before")
     @classmethod
     def sanitize_amount(cls, v):
-        """Sichert Fließkomma-Konvertierung gegen None oder ungültige Typen ab."""
+        """Sichert Fließkomma-Konvertierung gegen None oder fehlerhafte Typen ab."""
         if v is None:
             return 0.0
         try:
@@ -98,7 +98,7 @@ def save_portfolio_state(state: dict):
 
 
 def extract_json_from_response(text: str) -> str:
-    """Extrahiert sauberes JSON aus Markdown-Blöcken oder Rohcode."""
+    """Extrahiert sauberes JSON aus Markdown-Codeblöcken oder Textteilen."""
     fence_match = re.search(r"```(?:json)?\s*(\{.*?\})\s*```", text, re.DOTALL)
     if fence_match:
         return fence_match.group(1).strip()
@@ -147,6 +147,7 @@ AUFGABE:
 
 REGELN:
 - HOLD: Wenn der Markt unklar, überhitzt oder volatil ist, wähle diszipliniert "HOLD". In diesem Fall MUSS "symbol": null und "amount_usd": 0.0 sein.
+  WICHTIG: Auch bei "HOLD" MUSST du im Feld "reasoning" zwingend in 1-3 Sätzen deine Markteinschätzung begründen (z. B. Chartbild, Marktlage, Makro-News oder fehlende Kauf-/Verkaufsimpulse)!
 - BUY: Maximal 25% des verfügbaren Cashs (${state['cash'] * 0.25:,.2f} USD) investieren.
 - SELL: Nur Coins verkaufen, die sich bereits im Bestand befinden. Maximaler Gegenwert entspricht dem aktuellen Bestandswert.
 - Gib AUSSCHLIESSLICH ein gültiges JSON-Objekt ohne zusätzliche Erklärungen zurück!
@@ -156,7 +157,7 @@ JSON-FORMAT:
   "action": "BUY" | "SELL" | "HOLD",
   "symbol": "BTC" | "ETH" | "SOL" | null,
   "amount_usd": <Zahl in USD, bei HOLD immer 0.0>,
-  "reasoning": "<Präzise 1-3 Sätze mit Verweis auf deine Recherche>"
+  "reasoning": "<Zwingend 1-3 Sätze Analyse zur Marktlage, auch bei HOLD>"
 }}
 """
 
@@ -244,7 +245,7 @@ def run_cycle():
     # 3. State speichern
     save_portfolio_state(state)
 
-# 4. Historie erfassen (portfolio_history.csv)
+    # 4. Historie erfassen (portfolio_history.csv) - Exakte Spaltenreihenfolge!
     history_exists = os.path.exists(HISTORY_FILE)
     with open(HISTORY_FILE, "a", newline="", encoding="utf-8") as f:
         writer = csv.writer(f)
@@ -258,6 +259,10 @@ def run_cycle():
         ])
 
     # 5. Transaktions-Log schreiben (trades_log.csv)
+    reasoning_text = (decision.reasoning or "").replace("\n", " ").strip()
+    if not reasoning_text:
+        reasoning_text = f"Marktlage abwartend bewertet ({action}) – keine signifikanten Trendimpulse gefunden."
+
     trades_exists = os.path.exists(TRADES_FILE)
     with open(TRADES_FILE, "a", newline="", encoding="utf-8") as f:
         writer = csv.writer(f)
@@ -269,7 +274,7 @@ def run_cycle():
             symbol if (action != "HOLD" and symbol) else "–",
             f"{executed_amount:.2f}",
             f"{trade_price:.2f}" if trade_price > 0 else "–",
-            decision.reasoning.replace("\n", " ").strip(),
+            reasoning_text,
         ])
 
     print(f"Zyklus abgeschlossen. Portfolio-Gesamtwert: ${total_val:,.2f}")
