@@ -144,7 +144,10 @@ def ask_gemini(prices: dict, state: dict) -> TradingDecision:
             reasoning="GEMINI_API_KEY Secret fehlt in GitHub Actions.",
         )
 
-    client = genai.Client(api_key=api_key)
+    client = genai.Client(
+        api_key=api_key,
+        http_options=types.HttpOptions(api_version="v1beta"),
+    )
 
     # Detaillierte Positions-Übersicht inklusive P&L zusammenbauen
     positions_summary = []
